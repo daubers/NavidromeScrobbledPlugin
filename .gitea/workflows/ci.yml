@@ -1,8 +1,9 @@
 name: CI
 
 # Checks run on every push and PR. Pushes to main and v* tags build and package
-# the plugin, then publish the .ndp artifact to pkgs.daubney.dev - but only
-# once every check has passed. Every run is reported to ntfy.
+# the plugin, then publish the .ndp artifact to both this repo's Gitea package
+# registry and pkgs.daubney.dev - but only once every check has passed. Every
+# run is reported to ntfy.
 on:
   push:
     branches: ["**"]
@@ -64,6 +65,9 @@ jobs:
     needs: [lint, test, build]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -84,6 +88,30 @@ jobs:
               --data-binary "@manifest.json" "$BASE/$dir/manifest.json"
             echo "uploaded $dir/${PLUGIN_ID}.ndp"
           done
+      - name: Upload plugin artifact to Gitea package registry
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          BASE: ${{ github.server_url }}/api/packages/${{ github.repository_owner }}/generic/${{ env.PLUGIN_ID }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then dirs="${GITHUB_REF_NAME#v}"; else dirs="main sha-${GITHUB_SHA::7}"; fi
+          # Generic packages are immutable per version: delete first (ignored if absent) so
+          # a re-run or a repeated push to a mutable version like "main" doesn't 409.
+          for dir in $dirs; do
+            curl -fsS -X DELETE -H "Authorization: token $GITEA_TOKEN" "$BASE/$dir" || true
+            curl -fsS -X PUT -H "Authorization: token $GITEA_TOKEN" \
+              --upload-file "dist/${PLUGIN_ID}.ndp" "$BASE/$dir/${PLUGIN_ID}.ndp"
+            curl -fsS -X PUT -H "Authorization: token $GITEA_TOKEN" \
+              --upload-file "manifest.json" "$BASE/$dir/manifest.json"
+            echo "uploaded $dir/${PLUGIN_ID}.ndp to Gitea packages"
+          done
+      - name: Link Gitea package to this repo
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+        run: |
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          curl -fsS -X POST -H "Authorization: token $GITEA_TOKEN" \
+            "${{ github.server_url }}/api/v1/packages/${{ github.repository_owner }}/generic/${{ env.PLUGIN_ID }}/-/link/$repo_name" \
+            || echo "link skipped (already linked, or not yet supported)"
 
   notify:
     needs: [lint, test, build, publish]

@@ -90,7 +90,12 @@ then configure and assign users as described above.
 ## CI/CD
 
 Gitea Actions (`.gitea/workflows/ci.yml`) lints and tests every push and pull
-request, builds and packages the `.ndp` on every push, and — on pushes to
-`main` or `v*` tags — publishes the built artifact to the same
+request, builds, packages and validates the `.ndp` on every push, and — on
+pushes to `main` or `v*` tags — publishes the built artifact both to this
+repo's own Gitea package registry and to the same
 [pkgs.daubney.dev](https://pkgs.daubney.dev) ProGet asset feed used by
 `ScrobblingService`, under the `navidrome-scrobbled` content path.
+
+## License
+
+BSD 3-Clause. See [LICENSE](LICENSE).
