@@ -1,0 +1,51 @@
+{
+  "name": "Scrobbled",
+  "author": "Matt Daubney",
+  "version": "0.1.0",
+  "description": "Scrobbles Navidrome playback to a self-hosted Scrobbled (Last.fm-compatible) server.",
+  "website": "https://scrobbled.uk",
+  "permissions": {
+    "http": {
+      "reason": "Send now-playing updates and scrobbles to the user's configured Scrobbled server.",
+      "requiredHosts": ["*"]
+    },
+    "kvstore": {
+      "reason": "Cache the Scrobbled session key from the auth handshake so it isn't re-derived from the password on every call."
+    },
+    "users": {
+      "reason": "Required by the scrobbler capability; only fires for the Navidrome user(s) the admin assigns to this plugin."
+    }
+  },
+  "config": {
+    "schema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "required": ["server_url", "api_key", "shared_secret", "scrobbled_username", "scrobbled_password"],
+      "properties": {
+        "server_url": {
+          "type": "string",
+          "title": "Scrobbled server URL",
+          "description": "Base URL of your Scrobbled instance, e.g. https://scrobbled.uk (the plugin appends /2.0/).",
+          "default": "https://scrobbled.uk"
+        },
+        "api_key": { "type": "string", "title": "API key" },
+        "shared_secret": { "type": "string", "title": "Shared secret" },
+        "scrobbled_username": { "type": "string", "title": "Scrobbled username" },
+        "scrobbled_password": {
+          "type": "string",
+          "title": "Scrobbled password",
+          "description": "Used only for the one-time/re-auth session handshake, never sent on scrobble calls."
+        },
+        "navidrome_username": {
+          "type": "string",
+          "title": "Restrict to Navidrome username (optional)",
+          "description": "If set, only this Navidrome username is treated as authorized. Leave blank to allow any user the admin assigns via the plugin's users permission."
+        }
+      }
+    },
+    "uiSchema": {
+      "scrobbled_password": { "ui:widget": "password" },
+      "shared_secret": { "ui:widget": "password" }
+    }
+  }
+}

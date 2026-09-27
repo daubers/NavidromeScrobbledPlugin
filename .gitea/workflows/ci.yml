@@ -1,0 +1,124 @@
+name: CI
+
+# Checks run on every push and PR. Pushes to main and v* tags build and package
+# the plugin, then publish the .ndp artifact to pkgs.daubney.dev - but only
+# once every check has passed. Every run is reported to ntfy.
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  UV_VERSION: "0.7.21"
+  NAVIDROME_VERSION: "0.64.2"
+  PLUGIN_ID: navidrome-scrobbled
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: https://github.com/astral-sh/setup-uv@v6
+        with:
+          # Exact version: avoids an unauthenticated GitHub API lookup for "latest".
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --locked
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: https://github.com/astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --locked
+      - run: uv run python -m unittest discover -s tests -v
+
+  build:
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install extism-py and Binaryen
+        # Official installer: fetches the latest extism-py release for this
+        # OS/arch and installs wasm-merge/wasm-opt (Binaryen) if missing.
+        run: curl -fsSL https://raw.githubusercontent.com/extism/python-pdk/main/install.sh | bash
+      - run: make build
+      - run: make package
+      - name: Install navidrome CLI
+        run: |
+          curl -fsSL "https://github.com/navidrome/navidrome/releases/download/v${NAVIDROME_VERSION}/navidrome_${NAVIDROME_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin navidrome
+      - run: navidrome plugin validate dist/${{ env.PLUGIN_ID }}.ndp
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_ID }}
+          path: dist/${{ env.PLUGIN_ID }}.ndp
+          if-no-files-found: error
+
+  publish:
+    needs: [lint, test, build]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_ID }}
+          path: dist
+      - name: Upload plugin artifact to ProGet
+        env:
+          API_KEY: ${{ secrets.PKGS_API_KEY }}
+          BASE: https://${{ vars.PKGS_HOST }}/endpoints/${{ vars.PKGS_ASSET_FEED }}/content/${{ env.PLUGIN_ID }}
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then dirs="${GITHUB_REF_NAME#v}"; else dirs="main sha-${GITHUB_SHA::7}"; fi
+          # POST creates or overwrites (ProGet rejects PUT to an existing path).
+          for dir in $dirs; do
+            curl -fsS -X POST -H "X-ApiKey: $API_KEY" -H "Content-Type: application/octet-stream" \
+              --data-binary "@dist/${PLUGIN_ID}.ndp" "$BASE/$dir/${PLUGIN_ID}.ndp"
+            curl -fsS -X POST -H "X-ApiKey: $API_KEY" -H "Content-Type: application/json" \
+              --data-binary "@manifest.json" "$BASE/$dir/manifest.json"
+            echo "uploaded $dir/${PLUGIN_ID}.ndp"
+          done
+
+  notify:
+    needs: [lint, test, build, publish]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: summary
+        name: Summarise the run
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          needs = json.loads(os.environ["NEEDS"])
+          results = {job: info["result"] for job, info in needs.items()}
+          if "failure" in results.values():
+              status = "failure"
+          elif "cancelled" in results.values():
+              status = "cancelled"
+          else:
+              status = "success"
+          ran = [f"{job}: {result}" for job, result in results.items() if result != "skipped"]
+          ref = os.environ["GITHUB_REF"]
+          title = f"Release {os.environ['GITHUB_REF_NAME']}" if ref.startswith("refs/tags/") else f"CI {os.environ['GITHUB_REF_NAME']}"
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"status={status}\ntitle={title}\n")
+              out.write("message<<EOF\n" + "\n".join(ran) + "\nEOF\n")
+          PY
+      - uses: ./.gitea/actions/notify
+        with:
+          status: ${{ steps.summary.outputs.status }}
+          title: ${{ steps.summary.outputs.title }}
+          message: ${{ steps.summary.outputs.message }}
+          url: ${{ vars.NTFY_URL }}
+          topic: ${{ vars.NTFY_TOPIC }}
+          user: ${{ secrets.NTFY_USER }}
+          password: ${{ secrets.NTFY_PASSWORD }}

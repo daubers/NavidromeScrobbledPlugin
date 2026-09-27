@@ -1,0 +1,10 @@
+*.wasm
+*.ndp
+dist/
+scratch/
+__pycache__/
+*.pyc
+.venv/
+.idea/
+.junie/
+.DS_Store
