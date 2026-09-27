@@ -1,7 +1,7 @@
 {
   "name": "Scrobbled",
   "author": "Matt Daubney",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Scrobbles Navidrome playback to a self-hosted Scrobbled (Last.fm-compatible) server.",
   "website": "https://scrobbled.uk",
   "permissions": {
@@ -44,8 +44,23 @@
       }
     },
     "uiSchema": {
-      "scrobbled_password": { "ui:widget": "password" },
-      "shared_secret": { "ui:widget": "password" }
+      "type": "VerticalLayout",
+      "elements": [
+        { "type": "Control", "scope": "#/properties/server_url" },
+        { "type": "Control", "scope": "#/properties/api_key" },
+        {
+          "type": "Control",
+          "scope": "#/properties/shared_secret",
+          "options": { "format": "password" }
+        },
+        { "type": "Control", "scope": "#/properties/scrobbled_username" },
+        {
+          "type": "Control",
+          "scope": "#/properties/scrobbled_password",
+          "options": { "format": "password" }
+        },
+        { "type": "Control", "scope": "#/properties/navidrome_username" }
+      ]
     }
   }
 }
